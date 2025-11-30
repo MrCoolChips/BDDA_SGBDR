@@ -65,6 +65,8 @@ public class DiskManagerTests {
         
         File configFile = new File("config/config.txt");
         DBConfig config = DBConfig.LoadDBConfig(configFile);
+        cleanDBFiles(config);  // environnement propre pour ce test
+
         DiskManager dm = new DiskManager(config);
         
         // Allouer plusieurs pages
@@ -82,6 +84,8 @@ public class DiskManagerTests {
         }
         
         System.out.println("   OK - Toutes les pages ont des ID uniques");
+        
+        dm.finish();
     }
     
     /**
@@ -92,6 +96,8 @@ public class DiskManagerTests {
         
         File configFile = new File("config/config.txt");
         DBConfig config = DBConfig.LoadDBConfig(configFile);
+        cleanDBFiles(config);  // environnement propre
+
         DiskManager dm = new DiskManager(config);
         
         PageId pageId = dm.allocPage();
@@ -120,6 +126,8 @@ public class DiskManagerTests {
         }
         
         System.out.println("   OK - Écriture/lecture cohérente");
+
+        dm.finish();
     }
     
     /**
@@ -130,6 +138,8 @@ public class DiskManagerTests {
         
         File configFile = new File("config/config.txt");
         DBConfig config = DBConfig.LoadDBConfig(configFile);
+        cleanDBFiles(config);  // pour être sûr qu'il n'y a pas d'anciennes pages libres
+
         DiskManager dm = new DiskManager(config);
         
         // Allouer une page
@@ -150,6 +160,8 @@ public class DiskManagerTests {
         }
         
         System.out.println("   OK - Réutilisation des pages libres fonctionne");
+
+        dm.finish();
     }
     
     /**
@@ -160,6 +172,8 @@ public class DiskManagerTests {
         
         File configFile = new File("config/config.txt");
         DBConfig config = DBConfig.LoadDBConfig(configFile);
+        cleanDBFiles(config);  // environnement propre
+
         DiskManager dm = new DiskManager(config);
         
         PageId validPage = dm.allocPage();
@@ -192,6 +206,8 @@ public class DiskManagerTests {
         }
         
         System.out.println("   OK - Gestion d'erreurs correcte");
+
+        dm.finish();
     }
     
     /**
@@ -202,16 +218,18 @@ public class DiskManagerTests {
         
         File configFile = new File("config/config.txt");
         DBConfig config = DBConfig.LoadDBConfig(configFile);
+        cleanDBFiles(config);  // on part d'un état propre pour ce test
         
         // === PHASE 1 : Créer et sauvegarder des pages libres ===
+        PageId page1, page2, page3;
         {
             DiskManager dm1 = new DiskManager(config);
-            dm1.Init(); // Devrait commencer avec une liste vide
-            
+            // dm1.Init(); // déjà appelé dans le constructeur
+
             // Allouer quelques pages
-            PageId page1 = dm1.allocPage();
-            PageId page2 = dm1.allocPage();
-            PageId page3 = dm1.allocPage();
+            page1 = dm1.allocPage();
+            page2 = dm1.allocPage();
+            page3 = dm1.allocPage();
             
             System.out.println("   OK - Pages allouées : " + 
                 page1.getFileIdx() + "," + page1.getPageIdx() + " | " +
@@ -234,9 +252,9 @@ public class DiskManagerTests {
         // === PHASE 2 : Charger les pages libres dans une nouvelle instance ===
         {
             DiskManager dm2 = new DiskManager(config);
-            dm2.Init(); // Devrait charger les pages libres sauvegardées
+            // dm2.Init(); // déjà appelé dans le constructeur
             
-            System.out.println("   OK - État chargé avec Init()");
+            System.out.println("   OK - État chargé avec Init() (constructeur)");
             
             // Les prochaines allocations devraient réutiliser les pages libres
             PageId reused1 = dm2.allocPage(); // Devrait être page1 ou page3
@@ -248,11 +266,16 @@ public class DiskManagerTests {
                 reused2.getFileIdx() + "," + reused2.getPageIdx() + " | " +
                 newPage.getFileIdx() + "," + newPage.getPageIdx());
             
-           
-             
+            // Vérifier que reused1 et reused2 correspondent bien à page1 et page3 (ordre quelconque)
+            boolean case1 = reused1.equals(page1) && reused2.equals(page3);
+            boolean case2 = reused1.equals(page3) && reused2.equals(page1);
+            if (!case1 && !case2) {
+                throw new IOException("Erreur : les pages libres sauvegardées n'ont pas été réutilisées correctement !");
+            }
+            
             System.out.println("   OK - Réutilisation correcte des pages sauvegardées");
             
-            // Nettoyer pour le prochain test
+            // Sauvegarder à nouveau l'état
             dm2.finish();
         }
         
@@ -265,7 +288,7 @@ public class DiskManagerTests {
             }
             
             DiskManager dm3 = new DiskManager(config);
-            dm3.Init(); // Devrait fonctionner même sans fichier de sauvegarde
+            // dm3.Init(); // déjà appelé dans le constructeur
             
             PageId firstPage = dm3.allocPage();
             System.out.println("   OK - Init() fonctionne sans fichier de sauvegarde, première page : " + 
@@ -275,5 +298,27 @@ public class DiskManagerTests {
         }
         
         System.out.println("   OK - Persistance Init/finish complètement fonctionnelle");
+    }
+
+    /**
+     * Helper : supprime les fichiers Data*.bin et dm.save pour repartir d'un état propre.
+     * ATTENTION : à utiliser uniquement dans le cadre des tests.
+     */
+    private static void cleanDBFiles(DBConfig config) {
+        File dir = new File(config.getPath());
+        if (!dir.exists() || !dir.isDirectory()) {
+            return;
+        }
+
+        File[] files = dir.listFiles();
+        if (files == null) return;
+
+        for (File f : files) {
+            String name = f.getName();
+            if (name.equals("dm.save") || (name.startsWith("Data") && name.endsWith(".bin"))) {
+                // On ignore le résultat du delete, c'est uniquement pour les tests
+                f.delete();
+            }
+        }
     }
 }

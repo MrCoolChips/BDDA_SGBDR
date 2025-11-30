@@ -31,4 +31,20 @@ public class PageId {
     public int getPageIdx() {
         return PageIdx;
     }
+    
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        PageId other = (PageId) o;
+        return FileIdx == other.FileIdx && PageIdx == other.PageIdx;
+    }
+
+    @Override
+    public int hashCode() {
+        int result = Integer.hashCode(FileIdx);
+        result = 31 * result + Integer.hashCode(PageIdx);
+        return result;
+    }
+
 }

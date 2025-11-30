@@ -7,26 +7,30 @@ import java.io.FileReader;
 import java.io.FileWriter;
 import java.io.IOException;
 import java.io.RandomAccessFile;
-import java.util.LinkedList;
-import java.util.Queue;
-
+import java.util.BitSet;
 
 public class DiskManager {
     
     private DBConfig config;
-    private Queue<PageId> freePages;
+
+    /**
+     * Bitmap d'utilisation des pages :
+     * usedPages[fileIdx].get(pageIdx) == true  -> page utilisée (1)
+     * usedPages[fileIdx].get(pageIdx) == false -> page libre (0)
+     */
+    private BitSet[] usedPages;
 
     /**
      * Constructeur du DiskManager.
      * Initialise le gestionnaire avec la configuration fournie et
-     * crée une queue vide pour les pages libres.
+     * reconstruit les bitmaps à partir des fichiers de données et de dm.save.
      * 
      * @param config configuration de la base de données contenant
      *               le chemin, la taille des pages et le nombre max de fichiers
      */
     public DiskManager(DBConfig config) throws IOException {
         this.config = config;
-        this.freePages = new LinkedList<>();
+        this.usedPages = new BitSet[config.getMaxFileCount()];
         this.Init();
     }
 
@@ -41,9 +45,10 @@ public class DiskManager {
     
     /**
      * Alloue une nouvelle page pour stockage.
-     * Si une page précédemment désallouée est disponible, elle est réutilisée.
-     * Sinon, une nouvelle page est créée à la fin d'un fichier existant
-     * ou dans un nouveau fichier si nécessaire.
+     * 
+     * 1) Si une page précédemment désallouée (bit = 0) est disponible, elle est réutilisée.
+     * 2) Sinon, une nouvelle page est créée à la fin d'un fichier existant
+     *    ou dans un nouveau fichier si nécessaire.
      * 
      * @return PageId identifiant unique de la page allouée
      * @throws IOException si impossible de créer le fichier ou d'écrire la page,
@@ -51,12 +56,34 @@ public class DiskManager {
      */
     public PageId allocPage() throws IOException {
 
-        if (!freePages.isEmpty()) {
-            return freePages.poll();
+        int maxFiles = config.getMaxFileCount(); 
+        int pageSize = config.getPageSize();
+
+        // 1) Essayer d'abord de réutiliser une page libre (bit = 0)
+        for (int fileIdx = 0; fileIdx < maxFiles; fileIdx++) {
+            File f = new File(config.getPath(), "Data" + fileIdx + ".bin");
+            if (!f.exists()) {
+                continue; // pas de fichier, donc pas de pages ici
+            }
+
+            long length = f.length();
+            if (length <= 0) {
+                continue;
+            }
+
+            int pageCount = (int) (length / pageSize);
+            BitSet bitmap = getOrCreateBitmap(fileIdx);
+
+            // Parcourir uniquement les pages existantes dans le fichier
+            for (int pageIdx = 0; pageIdx < pageCount; pageIdx++) {
+                if (!bitmap.get(pageIdx)) {   // false -> page libre
+                    bitmap.set(pageIdx);      // devient utilisée (1)
+                    return new PageId(fileIdx, pageIdx);
+                }
+            }
         }
         
-        int maxFiles = config.getMaxFileCount(); 
-        
+        // 2) Aucune page libre : rajouter une nouvelle page à la fin d'un fichier
         for (int fileIdx = 0; fileIdx < maxFiles; fileIdx++) {
             File f = new File(config.getPath(), "Data" + fileIdx + ".bin");
             if (!f.exists()) {
@@ -64,11 +91,17 @@ public class DiskManager {
             }
 
             try (RandomAccessFile raf = new RandomAccessFile(f, "rw")) {
-                long pageIdx = raf.length() / config.getPageSize();
-                raf.seek(raf.length());
+                long pageIdxLong = raf.length() / pageSize;
+                int pageIdx = (int) pageIdxLong;
+
                 // Écrit une page vide (remplie de zéros) pour réserver l'espace
-                raf.write(new byte[config.getPageSize()]);
-                return new PageId(fileIdx, (int) pageIdx);
+                raf.seek(raf.length());
+                raf.write(new byte[pageSize]);
+
+                BitSet bitmap = getOrCreateBitmap(fileIdx);
+                bitmap.set(pageIdx); // nouvelle page = utilisée
+
+                return new PageId(fileIdx, pageIdx);
             }
         }
         
@@ -76,7 +109,7 @@ public class DiskManager {
     }
 
     /**
-     * Désalloue une page en l'ajoutant à la liste des pages libres.
+     * Désalloue une page en la marquant libre dans la bitmap (bit = 0).
      * La page pourra être réutilisée lors du prochain appel à allocPage().
      * Vérifie que la page existe avant de la désallouer.
      * 
@@ -85,9 +118,11 @@ public class DiskManager {
      */
     public void DeallocPage(PageId pageId) throws IOException {
         File f = getFile(pageId);
-        // Vérifie que la page existe
+        // Vérifie que la page existe (lève une exception sinon)
         getOffset(pageId, f);
-        freePages.add(pageId);
+
+        BitSet bitmap = getOrCreateBitmap(pageId.getFileIdx());
+        bitmap.clear(pageId.getPageIdx()); // 0 -> libre
     }
 
     /**
@@ -102,7 +137,8 @@ public class DiskManager {
     public void ReadPage(PageId pageId, byte[] buff) throws IOException {
 
         if (buff.length != config.getPageSize()) {
-            throw new IOException("Taille du buffer (" + buff.length + ") différente de la taille d'une page (" + config.getPageSize() + ")");
+            throw new IOException("Taille du buffer (" + buff.length + 
+                ") différente de la taille d'une page (" + config.getPageSize() + ")");
         }
 
         File f = getFile(pageId);
@@ -126,7 +162,8 @@ public class DiskManager {
     public void WritePage(PageId pageId, byte[] buff) throws IOException {
 
         if (buff.length != config.getPageSize()) {
-            throw new IOException("Taille du buffer (" + buff.length + ") différente de la taille d'une page (" + config.getPageSize() + ")");
+            throw new IOException("Taille du buffer (" + buff.length + 
+                ") différente de la taille d'une page (" + config.getPageSize() + ")");
         }
 
         File f = getFile(pageId);
@@ -141,7 +178,7 @@ public class DiskManager {
     /**
      * Finalise le DiskManager à l'arrêt du SGBD.
      * Sauvegarde la liste des pages libres dans un fichier au format CSV
-     * pour permettre leur récupération au prochain démarrage.
+     * (fileIdx,pageIdx) pour permettre leur récupération au prochain démarrage.
      * 
      * @throws IOException si impossible d'écrire le fichier de sauvegarde
      */
@@ -149,17 +186,43 @@ public class DiskManager {
         File saveFile = new File(config.getPath(), "dm.save");
         
         try (BufferedWriter writer = new BufferedWriter(new FileWriter(saveFile))) {
-            for (PageId page : freePages) {
-                writer.write(page.getFileIdx() + "," + page.getPageIdx());
-                writer.newLine();
+            int maxFiles = config.getMaxFileCount();
+            int pageSize = config.getPageSize();
+
+            for (int fileIdx = 0; fileIdx < maxFiles; fileIdx++) {
+                File f = new File(config.getPath(), "Data" + fileIdx + ".bin");
+                if (!f.exists()) {
+                    continue;
+                }
+
+                long length = f.length();
+                if (length <= 0) {
+                    continue;
+                }
+
+                int pageCount = (int) (length / pageSize);
+                BitSet bitmap = usedPages[fileIdx];
+                if (bitmap == null) {
+                    bitmap = new BitSet();
+                    usedPages[fileIdx] = bitmap;
+                }
+
+                // On écrit UNIQUEMENT les pages libres (bit = 0)
+                for (int pageIdx = 0; pageIdx < pageCount; pageIdx++) {
+                    if (!bitmap.get(pageIdx)) {
+                        writer.write(fileIdx + "," + pageIdx);
+                        writer.newLine();
+                    }
+                }
             }
         }
     }
 
     /**
      * Initialise le DiskManager au démarrage du SGBD.
-     * Charge la liste des pages libres depuis le fichier de sauvegarde
-     * pour restaurer l'état du gestionnaire au dernier arrêt.
+     * 
+     * 1) Pour chaque fichier Data existant, on considère toutes ses pages comme utilisées.
+     * 2) Puis on lit dm.save (s'il existe) pour marquer certaines pages comme libres.
      * 
      * @throws IOException si erreur lors de la lecture du fichier de sauvegarde
      */
@@ -168,19 +231,36 @@ public class DiskManager {
     }
 
     /**
-     * Charge la liste des pages libres depuis le fichier de sauvegarde.
-     * Lit le fichier dm.save ligne par ligne, chaque ligne contenant
-     * un PageId au format "fileIdx,pageIdx". Si le fichier n'existe pas,
-     * commence avec une liste de pages libres vide.
+     * Charge l'état des pages (utilisées / libres) depuis les fichiers de données
+     * et le fichier dm.save.
      * 
-     * @throws IOException si erreur lors de la lecture du fichier ou
-     *                     si le format des données est invalide
+     * dm.save contient une ligne par page libre : "fileIdx,pageIdx"
      */
     private void LoadState() throws IOException {
+        int maxFiles = config.getMaxFileCount();
+        int pageSize = config.getPageSize();
+
+        // 1) Initialiser les bitmaps : toutes les pages existantes sont utilisées (bit = 1)
+        for (int fileIdx = 0; fileIdx < maxFiles; fileIdx++) {
+            File f = new File(config.getPath(), "Data" + fileIdx + ".bin");
+            BitSet bitmap = new BitSet();
+            usedPages[fileIdx] = bitmap;
+
+            if (!f.exists()) {
+                continue;
+            }
+
+            long length = f.length();
+            if (length <= 0) {
+                continue;
+            }
+
+            int pageCount = (int) (length / pageSize);
+            bitmap.set(0, pageCount); // toutes ces pages sont utilisées par défaut
+        }
+
+        // 2) Lire dm.save pour récupérer les pages libres (bit = 0)
         File saveFile = new File(config.getPath(), "dm.save");
-        
-        freePages.clear();
-        
         if (!saveFile.exists()) {
             return;
         }
@@ -193,7 +273,24 @@ public class DiskManager {
                 if (parts.length == 2) {
                     int fileIdx = Integer.parseInt(parts[0].trim());
                     int pageIdx = Integer.parseInt(parts[1].trim());
-                    freePages.add(new PageId(fileIdx, pageIdx));
+
+                    if (fileIdx < 0 || fileIdx >= maxFiles) {
+                        continue;
+                    }
+
+                    File f = new File(config.getPath(), "Data" + fileIdx + ".bin");
+                    if (!f.exists()) {
+                        continue;
+                    }
+
+                    long length = f.length();
+                    int pageCount = (int) (length / pageSize);
+                    if (pageIdx < 0 || pageIdx >= pageCount) {
+                        continue; // entrée invalide, on ignore
+                    }
+
+                    BitSet bitmap = getOrCreateBitmap(fileIdx);
+                    bitmap.clear(pageIdx); // cette page devient libre (0)
                 }
             }
         }
@@ -235,6 +332,18 @@ public class DiskManager {
         }
         
         return offset;
+    }
+
+    /**
+     * Récupère (ou crée) la bitmap d'un fichier donné.
+     */
+    private BitSet getOrCreateBitmap(int fileIdx) {
+        BitSet bitmap = usedPages[fileIdx];
+        if (bitmap == null) {
+            bitmap = new BitSet();
+            usedPages[fileIdx] = bitmap;
+        }
+        return bitmap;
     }
 
 }
