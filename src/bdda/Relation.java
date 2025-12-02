@@ -1,326 +1,307 @@
 package bdda;
 
-import java.io.IOException;
-import java.nio.BufferOverflowException;
-import java.nio.BufferUnderflowException;
 import java.nio.ByteBuffer;
-import java.util.Arrays;
+import java.util.ArrayList;
 import java.util.List;
 
 /**
- * Représente une relation (ou table) dans un système de base de données.
- * Cette classe contient les métadonnées d'une relation, telles que son nom,
- * les noms et les types de ses colonnes. Elle fournit également des méthodes
- * pour sérialiser et désérialiser des enregistrements ({@link Record})
- * dans un {@link ByteBuffer}.
+ * Représente une relation (table) avec son schéma
+ * Gère l'écriture et la lecture des records dans les buffers
  */
 public class Relation {
-    /** Le nom de la relation (table). */
+    
     private String name;
+    private List<ColumnInfo> columns;
     
-    /** La liste ordonnée des noms des colonnes. */
-    private List<String> columnNames;
-    
-    /** La liste ordonnée des types des colonnes (ex: "INT", "FLOAT", "CHAR(10)", "VARCHAR(255)"). */
-    private List<String> columnTypes;
-    
-    private PageId headerPageId;
-    private int recordPerPage;
-    private DiskManager diskManager;
-    private BufferManager bufferManager;
-
     /**
-     * Construit une nouvelle instance de Relation.
-     *
-     * @param name Le nom de la relation.
-     * @param columnNames La liste des noms de colonnes.
-     * @param columnTypes La liste des types de colonnes, correspondant à la liste des noms.
+     * Constructeur avec liste de ColumnInfo
+     * @param name nom de la relation
+     * @param columns liste des colonnes
      */
-    public Relation(String name, List<String> columnNames, List<String> columnTypes, PageId headerPageId, int recordPerPage,DiskManager diskManager, BufferManager bufferManager) {
+    public Relation(String name, List<ColumnInfo> columns) {
         this.name = name;
-        this.columnNames = columnNames;
-        this.columnTypes = columnTypes;
-        this.headerPageId = headerPageId;
-        this.recordPerPage = recordPerPage;
-        this.diskManager = diskManager;
-        this.bufferManager = bufferManager;
+        this.columns = new ArrayList<>(columns);
     }
-
+    
     /**
-     * @return Le nom de la relation.
+     * Constructeur avec listes séparées de noms et types
+     * @param name nom de la relation
+     * @param columnNames liste des noms de colonnes
+     * @param columnTypes liste des types de colonnes
      */
+    public Relation(String name, List<String> columnNames, List<String> columnTypes) {
+        this.name = name;
+        this.columns = new ArrayList<>();
+        
+        if (columnNames.size() != columnTypes.size()) {
+            throw new IllegalArgumentException("Le nombre de noms et de types doit être identique");
+        }
+        
+        for (int i = 0; i < columnNames.size(); i++) {
+            columns.add(new ColumnInfo(columnNames.get(i), columnTypes.get(i)));
+        }
+    }
+    
+    
     public String getName() {
         return name;
     }
-
-    /**
-     * @return La liste des noms de colonnes.
-     */
-    public List<String> getColumnNames() {
-        return columnNames;
+    
+    public List<ColumnInfo> getColumns() {
+        return columns;
     }
-
-    /**
-     * @return La liste des types de colonnes.
-     */
-    public List<String> getColumnTypes() {
-        return columnTypes;
+    
+    public int getColumnCount() {
+        return columns.size();
     }
-
+    
+    public ColumnInfo getColumn(int index) {
+        return columns.get(index);
+    }
+    
     /**
-     * Écrit les données d'un enregistrement (record) dans un ByteBuffer à une position spécifiée.
-     * La sérialisation se fait en fonction des types de colonnes définis dans la relation.
-     *
-     * @param record L'enregistrement contenant les valeurs à écrire. Ne doit pas être null.
-     * @param buff Le buffer dans lequel écrire les données. Ne doit pas être null.
-     * @param pos La position de départ dans le buffer pour l'écriture.
-     * @throws IllegalArgumentException si le record, le buffer ou un type de colonne est null,
-     * ou si la position est invalide.
-     * @throws IllegalStateException si les types de colonnes n'ont pas été initialisés.
-     * @throws BufferOverflowException si le buffer n'a pas assez d'espace pour écrire les données.
+     * Calcule la taille totale d'un record en bytes
+     * @return taille en bytes
+     */
+    public int getRecordSize() {
+        int size = 0;
+        for (ColumnInfo col : columns) {
+            size += col.getSizeInBytes();
+        }
+        return size;
+    }
+        
+    /**
+     * Écrit un record dans le buffer à la position donnée
+     * Format à taille fixe : chaque valeur est écrite sur un nombre fixe de bytes
+     * 
+     * @param record le record à écrire
+     * @param buff le buffer (ByteBuffer)
+     * @param pos la position de départ dans le buffer
      */
     public void writeRecordToBuffer(Record record, ByteBuffer buff, int pos) {
-        if (record == null) {
-            throw new IllegalArgumentException("Le record ne doit pas être null.");
-        }
-        if (buff == null) {
-            throw new IllegalArgumentException("Le buffer ne doit pas être null.");
-        }
-        if (pos < 0 || pos >= buff.capacity()) {
-            throw new IllegalArgumentException("Position invalide: " + pos + " (capacité=" + buff.capacity() + ")");
-        }
-        if (columnTypes == null) {
-            throw new IllegalStateException("La liste columnTypes n'est pas initialisée.");
+        // Vérifier que le record a le bon nombre de valeurs
+        if (record.size() != columns.size()) {
+            throw new IllegalArgumentException(
+                "Le record a " + record.size() + " valeurs mais la relation a " + columns.size() + " colonnes");
         }
         
-        List<Object> values = record.getValues();
-        if (values == null) {
-            throw new IllegalArgumentException("La méthode getValues() du record a retourné null.");
-        }
-
+        // Positionner le curseur
         buff.position(pos);
-
-        for (int i = 0; i < columnTypes.size(); i++) {
-            String type = columnTypes.get(i);
-            if (type == null) {
-                throw new IllegalArgumentException("Le type de la colonne à l'index " + i + " est null.");
-            }
-            
-            Object val = values.get(i);
-
-            if (type.startsWith("INT")) {
-                buff.putInt(Integer.parseInt(val.toString()));
-            } else if (type.startsWith("FLOAT")) {
-                buff.putFloat(Float.parseFloat(val.toString()));
-            } else if (type.startsWith("CHAR")) {
-                int size = Integer.parseInt(type.substring(type.indexOf('(') + 1, type.indexOf(')')));
-                if (size < 0) {
-                    throw new IllegalArgumentException("La taille pour CHAR ne peut pas être négative : " + size);
-                }
-                if (buff.remaining() < size) {
-                    throw new BufferOverflowException();
-                }
-                
-                String str = val.toString();
-                for (int j = 0; j < size; j++) {
-                    // Remplit avec le caractère ou avec un espace si la chaîne est plus courte
-                    buff.put((byte) (j < str.length() ? str.charAt(j) : ' '));
-                }
-            } else if (type.startsWith("VARCHAR")) {
-                String str = val.toString();
-                int max = Integer.parseInt(type.substring(type.indexOf('(') + 1, type.indexOf(')')));
-                if (max < 0) {
-                    throw new IllegalArgumentException("La taille pour VARCHAR ne peut pas être négative : " + max);
-                }
-                if (buff.remaining() < max) {
-                    throw new BufferOverflowException();
-                }
-                
-                byte[] bytes = str.getBytes();
-                if (bytes.length > max) {
-                    // Tronque la chaîne si elle est trop longue
-                    buff.put(bytes, 0, max);
-                } else {
-                    // Écrit la chaîne et remplit le reste avec des espaces
-                    buff.put(bytes);
-                    for (int j = bytes.length; j < max; j++) {
-                        buff.put((byte) ' ');
-                    }
-                }
-            } else {
-                throw new IllegalArgumentException("Type de colonne non géré : " + type);
-            }
+        
+        // Écrire chaque valeur selon son type
+        for (int i = 0; i < columns.size(); i++) {
+            ColumnInfo col = columns.get(i);
+            Object value = record.getValue(i);
+            writeValue(buff, col, value);
         }
     }
-
+    
     /**
-     * Lit les données d'un ByteBuffer à partir d'une position spécifiée et remplit un enregistrement (record).
-     * La désérialisation se fait en fonction des types de colonnes définis dans la relation.
-     *
-     * @param record L'enregistrement à remplir avec les données lues. Il sera vidé avant le remplissage. Ne doit pas être null.
-     * @param buff Le buffer depuis lequel lire les données. Ne doit pas être null.
-     * @param pos La position de départ dans le buffer pour la lecture.
-     * @throws IllegalArgumentException si le record, le buffer ou un type de colonne est null,
-     * ou si la position est invalide.
-     * @throws IllegalStateException si les types de colonnes n'ont pas été initialisés.
-     * @throws BufferUnderflowException si le buffer ne contient pas assez de données pour lire un champ complet.
+     * Écrit une valeur dans le buffer selon son type
+     */
+    private void writeValue(ByteBuffer buff, ColumnInfo col, Object value) {
+        if (col.isInt()) {
+            int intValue = convertToInt(value);
+            buff.putInt(intValue);
+            
+        } else if (col.isFloat()) {
+            float floatValue = convertToFloat(value);
+            buff.putFloat(floatValue);
+            
+        } else if (col.isChar()) {
+            int maxLen = col.getMaxLength();
+            String strValue = convertToString(value);
+            writeFixedString(buff, strValue, maxLen);
+            
+        } else if (col.isVarchar()) {
+            int maxLen = col.getMaxLength();
+            String strValue = convertToString(value);
+            writeVarcharString(buff, strValue, maxLen);
+        }
+    }
+    
+    /**
+     * Écrit une chaîne de taille fixe (CHAR(T))
+     * Remplit avec des espaces si la chaîne est plus courte que T
+     * Tronque si la chaîne est plus longue que T
+     */
+    private void writeFixedString(ByteBuffer buff, String str, int maxLen) {
+        // Tronquer si trop long
+        if (str.length() > maxLen) {
+            str = str.substring(0, maxLen);
+        }
+        
+        // Écrire les caractères
+        for (int i = 0; i < str.length(); i++) {
+            buff.put((byte) str.charAt(i));
+        }
+        
+        // Remplir avec des espaces (padding)
+        for (int i = str.length(); i < maxLen; i++) {
+            buff.put((byte) ' ');
+        }
+    }
+    
+    /**
+     * Écrit une chaîne de taille variable (VARCHAR(T))
+     * Format : 4 bytes pour la longueur réelle + T bytes pour les caractères
+     * Les caractères non utilisés sont remplis avec des espaces
+     */
+    private void writeVarcharString(ByteBuffer buff, String str, int maxLen) {
+        // Tronquer si trop long
+        if (str.length() > maxLen) {
+            str = str.substring(0, maxLen);
+        }
+        
+        // Écrire la longueur réelle (4 bytes)
+        buff.putInt(str.length());
+        
+        // Écrire les caractères
+        for (int i = 0; i < str.length(); i++) {
+            buff.put((byte) str.charAt(i));
+        }
+        
+        // Remplir avec des espaces jusqu'à maxLen (padding)
+        for (int i = str.length(); i < maxLen; i++) {
+            buff.put((byte) ' ');
+        }
+    }
+        
+    /**
+     * Lit un record depuis le buffer à la position donnée
+     * Le record passé en paramètre sera rempli avec les valeurs lues
+     * 
+     * @param record le record à remplir (doit être vide)
+     * @param buff le buffer (ByteBuffer)
+     * @param pos la position de départ dans le buffer
      */
     public void readFromBuffer(Record record, ByteBuffer buff, int pos) {
-        if (record == null) {
-            throw new IllegalArgumentException("Le record ne doit pas être null.");
-        }
-        if (buff == null) {
-            throw new IllegalArgumentException("Le buffer ne doit pas être null.");
-        }
-        if (pos < 0 || pos >= buff.capacity()) {
-            throw new IllegalArgumentException("Position invalide: " + pos + " (capacité=" + buff.capacity() + ")");
-        }
-        if (columnTypes == null) {
-            throw new IllegalStateException("La liste columnTypes n'est pas initialisée.");
-        }
-
-        buff.position(pos);
-        for (String type : columnTypes) {
-            if (type == null) {
-                throw new IllegalArgumentException("Un type de colonne est null.");
-            }
-
-            if (type.startsWith("INT")) {
-                if (buff.remaining() < Integer.BYTES) {
-                    throw new BufferUnderflowException();
-                }
-                record.addValue(buff.getInt());
-            } else if (type.startsWith("FLOAT")) {
-                if (buff.remaining() < Float.BYTES) {
-                    throw new BufferUnderflowException();
-                }
-                record.addValue(buff.getFloat());
-            } else if (type.startsWith("CHAR")) {
-                int size = Integer.parseInt(type.substring(type.indexOf('(') + 1, type.indexOf(')')));
-                if (size < 0) {
-                    throw new IllegalArgumentException("La taille pour CHAR ne peut pas être négative : " + size);
-                }
-                if (buff.remaining() < size) {
-                    throw new BufferUnderflowException();
-                }
-                
-                byte[] strBytes = new byte[size];
-                buff.get(strBytes);
-                record.addValue(new String(strBytes).trim());
-            } else if (type.startsWith("VARCHAR")) {
-                int max = Integer.parseInt(type.substring(type.indexOf('(') + 1, type.indexOf(')')));
-                if (max < 0) {
-                    throw new IllegalArgumentException("La taille pour VARCHAR ne peut pas être négative : " + max);
-                }
-                if (buff.remaining() < max) {
-                    throw new BufferUnderflowException();
-                }
-                
-                byte[] strBytes = new byte[max];
-                buff.get(strBytes);
-                record.addValue(new String(strBytes).trim());
-            } else {
-                throw new IllegalArgumentException("Type de colonne non géré : " + type);
-            }
-        }
-    }
-    
-
-    public void addDataPage() throws IOException {
-        // Allouer une nouvelle page de données
-        PageId newPage = diskManager.allocPage();
-
-        // Ouvrir la Header Page via le BufferManager
-        byte[] headerBuf = bufferManager.GetPage(headerPageId);
-        ByteBuffer hb = ByteBuffer.wrap(headerBuf);
-
-        // Lire le nombre courant d’entrées
-        final int pageSize = bufferManager.getConfig().getPageSize();
-        if (pageSize < 12) {
-            bufferManager.FreePage(headerPageId, false);
-            throw new IOException("Taille de page insuffisante pour stocker la Header Page.");
-        }
-
-        int count = hb.getInt(0);
-        int entryOffset = 4 + (count * 8);
-
-        // Vérifier qu’on ne dépasse pas la taille de page
-        if (entryOffset + 8 > pageSize) {
-            bufferManager.FreePage(headerPageId, false);
-            throw new IOException("Header Page pleine : impossible d’ajouter une nouvelle entrée (offset=" + entryOffset + ", pageSize=" + pageSize + ").");
-        }
-
-        // Écrire la nouvelle entrée (fileIdx, pageIdx), puis incrémenter count
-        hb.putInt(entryOffset, newPage.getFileIdx());
-        hb.putInt(entryOffset + 4, newPage.getPageIdx());
-        hb.putInt(0, count + 1);
-
-        // Libérer la page d’en-tête (dirty = true car on a modifié son contenu)
-        bufferManager.FreePage(headerPageId, true);
-    }
-    
-    public PageId getFreeDataPageId(int sizeRecord) throws IOException {
+        // Vider le record au cas où
+        record.clear();
         
-    	if (sizeRecord < 0) {
-            throw new IllegalArgumentException("sizeRecord ne peut pas être négatif.");
+        // Positionner le curseur
+        buff.position(pos);
+        
+        // Lire chaque valeur selon son type
+        for (int i = 0; i < columns.size(); i++) {
+            ColumnInfo col = columns.get(i);
+            Object value = readValue(buff, col);
+            record.addValue(value);
         }
-
-        final int pageSize = bufferManager.getConfig().getPageSize();
-
-        // Charger la Header Page via le BufferManager
-        byte[] headerBuf = bufferManager.GetPage(headerPageId);
-        ByteBuffer hb = ByteBuffer.wrap(headerBuf);
-
-        // Lire le nombre de pages référencées
-        if (pageSize < 4) {
-            bufferManager.FreePage(headerPageId, false);
-            throw new IOException("Taille de page insuffisante pour une Header Page valide.");
+    }
+    
+    /**
+     * Lit une valeur depuis le buffer selon son type
+     */
+    private Object readValue(ByteBuffer buff, ColumnInfo col) {
+        if (col.isInt()) {
+            return buff.getInt();
+            
+        } else if (col.isFloat()) {
+            return buff.getFloat();
+            
+        } else if (col.isChar()) {
+            int maxLen = col.getMaxLength();
+            return readFixedString(buff, maxLen);
+            
+        } else if (col.isVarchar()) {
+            int maxLen = col.getMaxLength();
+            return readVarcharString(buff, maxLen);
         }
-        int count = hb.getInt(0);
-
-        // Parcourir les entrées (8 octets chacune)
-        for (int i = 0; i < count; i++) {
-            int entryOffset = 4 + i * 8;
-            if (entryOffset + 8 > pageSize) {
-                // Protection contre une header corrompue
-                bufferManager.FreePage(headerPageId, false);
-                throw new IOException("Header Page corrompue: entrée hors limites (index=" + i + ").");
-            }
-
-            int fileIdx = hb.getInt(entryOffset);
-            int pageIdx = hb.getInt(entryOffset + 4);
-            PageId pid = new PageId(fileIdx, pageIdx);
-
-            // Lire la Data Page candidate et calculer l’espace libre réel
-            byte[] dataBuf = bufferManager.GetPage(pid);
-            ByteBuffer db = ByteBuffer.wrap(dataBuf);
-
-            if (pageSize < 8) {
-                bufferManager.FreePage(pid, false);
-                bufferManager.FreePage(headerPageId, false);
-                throw new IOException("Taille de page insuffisante pour un footer valide.");
-            }
-
-            int nbRecords = db.getInt(pageSize - 8);
-            int freePos   = db.getInt(pageSize - 4);
-
-            // Directory déjà utilisé + footer 8 octets
-            int directoryUsed = nbRecords * 8;
-            int freeBytes = pageSize - freePos - 8 - directoryUsed; // 8 pour la future entrée (pos,taille)
-
-            bufferManager.FreePage(pid, false);
-
-            // Assez de place ? (payload + entrée répertoire)
-            if (freeBytes >= sizeRecord + 8) {
-                bufferManager.FreePage(headerPageId, false);
-                return pid;
-            }
-        }
-
-        // Aucune page ne convient
-        bufferManager.FreePage(headerPageId, false);
+        
         return null;
     }
-
-	
+    
+    /**
+     * Lit une chaîne de taille fixe (CHAR(T))
+     * Supprime les espaces de fin (trailing spaces)
+     */
+    private String readFixedString(ByteBuffer buff, int maxLen) {
+        StringBuilder sb = new StringBuilder();
+        
+        for (int i = 0; i < maxLen; i++) {
+            char c = (char) buff.get();
+            sb.append(c);
+        }
+        
+        // Supprimer les espaces de fin
+        return sb.toString().stripTrailing();
+    }
+    
+    /**
+     * Lit une chaîne de taille variable (VARCHAR(T))
+     * Lit d'abord la longueur, puis les caractères
+     */
+    private String readVarcharString(ByteBuffer buff, int maxLen) {
+        // Lire la longueur réelle (4 bytes)
+        int realLength = buff.getInt();
+        
+        StringBuilder sb = new StringBuilder();
+        
+        // Lire uniquement les caractères réels
+        for (int i = 0; i < realLength; i++) {
+            char c = (char) buff.get();
+            sb.append(c);
+        }
+        
+        // Sauter les espaces de padding
+        for (int i = realLength; i < maxLen; i++) {
+            buff.get(); // ignorer
+        }
+        
+        return sb.toString();
+    }
+        
+    /**
+     * Convertit une valeur en int
+     */
+    private int convertToInt(Object value) {
+        if (value instanceof Integer) {
+            return (Integer) value;
+        } else if (value instanceof String) {
+            return Integer.parseInt((String) value);
+        } else if (value instanceof Number) {
+            return ((Number) value).intValue();
+        }
+        throw new IllegalArgumentException("Impossible de convertir en INT : " + value);
+    }
+    
+    /**
+     * Convertit une valeur en float
+     */
+    private float convertToFloat(Object value) {
+        if (value instanceof Float) {
+            return (Float) value;
+        } else if (value instanceof Double) {
+            return ((Double) value).floatValue();
+        } else if (value instanceof String) {
+            return Float.parseFloat((String) value);
+        } else if (value instanceof Number) {
+            return ((Number) value).floatValue();
+        }
+        throw new IllegalArgumentException("Impossible de convertir en FLOAT : " + value);
+    }
+    
+    /**
+     * Convertit une valeur en String
+     */
+    private String convertToString(Object value) {
+        if (value == null) {
+            return "";
+        }
+        return value.toString();
+    }
+    
+    @Override
+    public String toString() {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Relation '").append(name).append("' (");
+        sb.append(getRecordSize()).append(" bytes/record) {\n");
+        for (ColumnInfo col : columns) {
+            sb.append("  ").append(col).append(" (").append(col.getSizeInBytes()).append(" bytes)\n");
+        }
+        sb.append("}");
+        return sb.toString();
+    }
 }
