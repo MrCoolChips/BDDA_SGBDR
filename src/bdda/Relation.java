@@ -20,7 +20,6 @@ public class Relation {
     private BufferManager bufferManager;
     
     // Constantes pour la structure des pages
-    private static final int HEADER_PAGE_SIZE = 16;  // 2 PageId = 4 * 4 bytes
     private static final int DATA_PAGE_HEADER_SIZE = 16;  // prevPage + nextPage
     
     // PageId factice pour indiquer "fin de liste"
@@ -630,6 +629,83 @@ public class Relation {
         }
         
         return pages;
+    }
+
+    // XXXXXXXXXXXXXXXXXXXXXX C7: API XXXXXXXXXXXXXXXXXXXXX
+    
+    /**
+     * Insère un record dans la relation
+     * Retourne le RecordId du record inséré
+     */
+    public RecordId InsertRecord(Record record) throws IOException {
+        // Chercher une page avec de l'espace
+        PageId pageId = getFreeDataPageId(getRecordSize());
+        
+        // Si aucune page disponible, en créer une
+        if (pageId == null) {
+            addDataPage();
+            pageId = getFreeDataPageId(getRecordSize());
+        }
+        
+        // Écrire le record
+        return writeRecordToDataPage(record, pageId);
+    }
+    
+    /**
+     * Retourne tous les records de la relation
+     */
+    public List<Record> GetAllRecords() throws IOException {
+        List<Record> allRecords = new ArrayList<>();
+        
+        List<PageId> pages = getDataPages();
+        
+        for (PageId pageId : pages) {
+            List<Record> pageRecords = getRecordsInDataPage(pageId);
+            allRecords.addAll(pageRecords);
+        }
+        
+        return allRecords;
+    }
+    
+    /**
+     * Supprime un record de la relation
+     */
+    public void DeleteRecord(RecordId rid) throws IOException {
+        PageId pageId = rid.getPageId();
+        int slotIdx = rid.getSlotIdx();
+        
+        byte[] buffer = bufferManager.GetPage(pageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        // Vérifier si la page était pleine avant suppression
+        boolean wasFull = isPageFull(bb);
+        
+        // Marquer le slot comme libre
+        int bytemapOffset = getBytemapOffset();
+        bb.put(bytemapOffset + slotIdx, (byte) 0);
+        
+        // Vérifier si la page devient vide
+        if (isPageEmpty(bb)) {
+            bufferManager.FreePage(pageId, true);
+            
+            // Retirer de la liste appropriée
+            if (wasFull) {
+                removeFromFullList(pageId);
+            } else {
+                removeFromFreeList(pageId);
+            }
+            
+            // Désallouer la page
+            diskManager.DeallocPage(pageId);
+            
+        } else if (wasFull) {
+            // La page était pleine et ne l'est plus
+            bufferManager.FreePage(pageId, true);
+            movePageToFreeList(pageId);
+            
+        } else {
+            bufferManager.FreePage(pageId, true);
+        }
     }
 
         
