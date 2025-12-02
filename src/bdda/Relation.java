@@ -129,6 +129,84 @@ public class Relation {
         
         bufferManager.FreePage(headerPageId, true);
     }
+
+    /**
+     * Lit le PageId de la première page pleine depuis la Header Page
+     */
+    private PageId getFullPagesHead() throws IOException {
+        byte[] buffer = bufferManager.GetPage(headerPageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        int fileIdx = bb.getInt();
+        int pageIdx = bb.getInt();
+        
+        bufferManager.FreePage(headerPageId, false);
+        
+        if (fileIdx == INVALID_PAGE_ID) {
+            return null;
+        }
+        return new PageId(fileIdx, pageIdx);
+    }
+    
+    /**
+     * Lit le PageId de la première page libre depuis la Header Page
+     */
+    private PageId getFreePagesHead() throws IOException {
+        byte[] buffer = bufferManager.GetPage(headerPageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        // Skip fullPages
+        bb.position(8);
+        
+        int fileIdx = bb.getInt();
+        int pageIdx = bb.getInt();
+        
+        bufferManager.FreePage(headerPageId, false);
+        
+        if (fileIdx == INVALID_PAGE_ID) {
+            return null;
+        }
+        return new PageId(fileIdx, pageIdx);
+    }
+    
+    /**
+     * Met à jour le pointeur fullPages dans la Header Page
+     */
+    private void setFullPagesHead(PageId pageId) throws IOException {
+        byte[] buffer = bufferManager.GetPage(headerPageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        if (pageId == null) {
+            bb.putInt(INVALID_PAGE_ID);
+            bb.putInt(INVALID_PAGE_ID);
+        } else {
+            bb.putInt(pageId.getFileIdx());
+            bb.putInt(pageId.getPageIdx());
+        }
+        
+        bufferManager.FreePage(headerPageId, true);
+    }
+    
+    /**
+     * Met à jour le pointeur freePages dans la Header Page
+     */
+    private void setFreePagesHead(PageId pageId) throws IOException {
+        byte[] buffer = bufferManager.GetPage(headerPageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        // Skip fullPages
+        bb.position(8);
+        
+        if (pageId == null) {
+            bb.putInt(INVALID_PAGE_ID);
+            bb.putInt(INVALID_PAGE_ID);
+        } else {
+            bb.putInt(pageId.getFileIdx());
+            bb.putInt(pageId.getPageIdx());
+        }
+        
+        bufferManager.FreePage(headerPageId, true);
+    }
         
     /**
      * Écrit un record dans le buffer à la position donnée
