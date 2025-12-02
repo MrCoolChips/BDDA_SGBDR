@@ -110,7 +110,7 @@ public class Relation {
         return availableSpace / bytesPerSlot;
     }
 
-    // ==================== HEADER PAGE ====================
+    // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX HEADER PAGE XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     
     /**
      * Initialise la Header Page avec des listes vides
@@ -208,7 +208,7 @@ public class Relation {
         bufferManager.FreePage(headerPageId, true);
     }
 
-    // ==================== DATA PAGE STRUCTURE ====================
+    // XXXXXXXXXXXXXXXXXXXXXXXXXXXXXX DATA PAGE STRUCTURE XXXXXXXXXXXXXXXXXXXXXXXXXXXXX
     
     /**
      * Structure d'une Data Page :
@@ -333,6 +333,48 @@ public class Relation {
      */
     private boolean isPageEmpty(ByteBuffer bb) {
         return countOccupiedSlots(bb) == 0;
+    }
+
+    // XXXXXXXXXXXXXXXXXXXXXXX C2: ADD DATA PAGE XXXXXXXXXXXXXXXXXXXXXXXXXXXXX
+    
+    /**
+     * Ajoute une nouvelle page de données au Heap File
+     */
+    public void addDataPage() throws IOException {
+        // Allouer une nouvelle page
+        PageId newPageId = diskManager.allocPage();
+        
+        // Récupérer l'ancienne tête de freePages
+        PageId oldHead = getFreePagesHead();
+        
+        // Initialiser la nouvelle page
+        byte[] buffer = bufferManager.GetPage(newPageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        // prevPage = null (c'est la nouvelle tête)
+        setPrevPage(bb, null);
+        
+        // nextPage = ancienne tête
+        setNextPage(bb, oldHead);
+        
+        // Initialiser la bytemap à 0 (tous les slots libres)
+        int bytemapOffset = getBytemapOffset();
+        for (int i = 0; i < slotCount; i++) {
+            bb.put(bytemapOffset + i, (byte) 0);
+        }
+        
+        bufferManager.FreePage(newPageId, true);
+        
+        // Si l'ancienne tête existe, mettre à jour son prevPage
+        if (oldHead != null) {
+            byte[] oldBuffer = bufferManager.GetPage(oldHead);
+            ByteBuffer oldBb = ByteBuffer.wrap(oldBuffer);
+            setPrevPage(oldBb, newPageId);
+            bufferManager.FreePage(oldHead, true);
+        }
+        
+        // Mettre à jour la Header Page
+        setFreePagesHead(newPageId);
     }
         
     /**
