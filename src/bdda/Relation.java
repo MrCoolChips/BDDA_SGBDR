@@ -405,6 +405,172 @@ public class Relation {
         return null;
     }
 
+    // ==================== C4: WRITE RECORD TO DATA PAGE ====================
+    
+    /**
+     * Écrit un record dans une page de données
+     * Retourne le RecordId du record écrit
+     */
+    public RecordId writeRecordToDataPage(Record record, PageId pageId) throws IOException {
+        byte[] buffer = bufferManager.GetPage(pageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        // Trouver un slot libre
+        int slotIdx = findFreeSlot(bb);
+        
+        // Écrire le record dans le slot
+        int slotOffset = getSlotOffset(slotIdx);
+        writeRecordToBuffer(record, bb, slotOffset);
+        
+        // Marquer le slot comme occupé dans la bytemap
+        int bytemapOffset = getBytemapOffset();
+        bb.put(bytemapOffset + slotIdx, (byte) 1);
+        
+        // Si la page devient pleine, la déplacer vers fullPages
+        if (isPageFull(bb)) {
+            bufferManager.FreePage(pageId, true);
+            movePageToFullList(pageId);
+        } else {
+            bufferManager.FreePage(pageId, true);
+        }
+        
+        return new RecordId(pageId, slotIdx);
+    }
+    
+    /**
+     * Déplace une page de freePages vers fullPages
+     */
+    private void movePageToFullList(PageId pageId) throws IOException {
+        // Retirer de freePages
+        removeFromFreeList(pageId);
+        
+        // Ajouter à fullPages
+        addToFullList(pageId);
+    }
+    
+    /**
+     * Déplace une page de fullPages vers freePages
+     */
+    private void movePageToFreeList(PageId pageId) throws IOException {
+        // Retirer de fullPages
+        removeFromFullList(pageId);
+        
+        // Ajouter à freePages
+        addToFreeList(pageId);
+    }
+    
+    /**
+     * Retire une page de la liste freePages
+     */
+    private void removeFromFreeList(PageId pageId) throws IOException {
+        byte[] buffer = bufferManager.GetPage(pageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        PageId prev = getPrevPage(bb);
+        PageId next = getNextPage(bb);
+        
+        bufferManager.FreePage(pageId, false);
+        
+        // Mettre à jour le lien prev -> next
+        if (prev != null) {
+            byte[] prevBuffer = bufferManager.GetPage(prev);
+            ByteBuffer prevBb = ByteBuffer.wrap(prevBuffer);
+            setNextPage(prevBb, next);
+            bufferManager.FreePage(prev, true);
+        } else {
+            // C'était la tête de liste
+            setFreePagesHead(next);
+        }
+        
+        // Mettre à jour le lien next -> prev
+        if (next != null) {
+            byte[] nextBuffer = bufferManager.GetPage(next);
+            ByteBuffer nextBb = ByteBuffer.wrap(nextBuffer);
+            setPrevPage(nextBb, prev);
+            bufferManager.FreePage(next, true);
+        }
+    }
+    
+    /**
+     * Retire une page de la liste fullPages
+     */
+    private void removeFromFullList(PageId pageId) throws IOException {
+        byte[] buffer = bufferManager.GetPage(pageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        PageId prev = getPrevPage(bb);
+        PageId next = getNextPage(bb);
+        
+        bufferManager.FreePage(pageId, false);
+        
+        // Mettre à jour le lien prev -> next
+        if (prev != null) {
+            byte[] prevBuffer = bufferManager.GetPage(prev);
+            ByteBuffer prevBb = ByteBuffer.wrap(prevBuffer);
+            setNextPage(prevBb, next);
+            bufferManager.FreePage(prev, true);
+        } else {
+            // C'était la tête de liste
+            setFullPagesHead(next);
+        }
+        
+        // Mettre à jour le lien next -> prev
+        if (next != null) {
+            byte[] nextBuffer = bufferManager.GetPage(next);
+            ByteBuffer nextBb = ByteBuffer.wrap(nextBuffer);
+            setPrevPage(nextBb, prev);
+            bufferManager.FreePage(next, true);
+        }
+    }
+    
+    /**
+     * Ajoute une page en tête de freePages
+     */
+    private void addToFreeList(PageId pageId) throws IOException {
+        PageId oldHead = getFreePagesHead();
+        
+        byte[] buffer = bufferManager.GetPage(pageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        setPrevPage(bb, null);
+        setNextPage(bb, oldHead);
+        
+        bufferManager.FreePage(pageId, true);
+        
+        if (oldHead != null) {
+            byte[] oldBuffer = bufferManager.GetPage(oldHead);
+            ByteBuffer oldBb = ByteBuffer.wrap(oldBuffer);
+            setPrevPage(oldBb, pageId);
+            bufferManager.FreePage(oldHead, true);
+        }
+        
+        setFreePagesHead(pageId);
+    }
+    
+    /**
+     * Ajoute une page en tête de fullPages
+     */
+    private void addToFullList(PageId pageId) throws IOException {
+        PageId oldHead = getFullPagesHead();
+        
+        byte[] buffer = bufferManager.GetPage(pageId);
+        ByteBuffer bb = ByteBuffer.wrap(buffer);
+        
+        setPrevPage(bb, null);
+        setNextPage(bb, oldHead);
+        
+        bufferManager.FreePage(pageId, true);
+        
+        if (oldHead != null) {
+            byte[] oldBuffer = bufferManager.GetPage(oldHead);
+            ByteBuffer oldBb = ByteBuffer.wrap(oldBuffer);
+            setPrevPage(oldBb, pageId);
+            bufferManager.FreePage(oldHead, true);
+        }
+        
+        setFullPagesHead(pageId);
+    }
+
         
     /**
      * Écrit un record dans le buffer à la position donnée
