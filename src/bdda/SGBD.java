@@ -67,5 +67,32 @@ public class SGBD {
         scanner.close();
     }
     
+    /**
+     * Analyse et dispatch la commande vers la bonne methode
+     */
+    private void processCommand(String command) throws IOException {
+        if (command.startsWith("CREATE TABLE ")) {
+            ProcessCreateTableCommand(command);
+        }
+        else if (command.startsWith("DROP TABLE ") && !command.equals("DROP TABLES")) {
+            ProcessDropTableCommand(command);
+        }
+        else if (command.equals("DROP TABLES")) {
+            ProcessDropTablesCommand(command);
+        }
+        else if (command.startsWith("DESCRIBE TABLE ") && !command.equals("DESCRIBE TABLES")) {
+            ProcessDescribeTableCommand(command);
+        }
+        else if (command.equals("DESCRIBE TABLES")) {
+            ProcessDescribeTablesCommand(command);
+        }
+        else if (command.equals("EXIT")) {
+            ProcessExitCommand(command);
+        }
+        else {
+            System.out.println("Commande inconnue : " + command);
+        }
+    }
+    
     
 }
