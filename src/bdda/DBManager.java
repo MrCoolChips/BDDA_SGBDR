@@ -54,4 +54,102 @@ public class DBManager {
         return config;
     }
     
+
+    /**
+     * Ajoute une table a la base de donnees
+     * @param tab la relation a ajouter
+     */
+    public void AddTable(Relation tab) {
+        tables.put(tab.getName(), tab);
+    }
+    
+    /**
+     * Retourne une table par son nom
+     * @param nomTable le nom de la table
+     * @return la relation correspondante ou null si inexistante
+     */
+    public Relation GetTable(String nomTable) {
+        return tables.get(nomTable);
+    }
+    
+    /**
+     * Supprime une table de la base de donnees
+     * @param nomTable le nom de la table a supprimer
+     */
+    public void RemoveTable(String nomTable) throws IOException {
+        Relation table = tables.get(nomTable);
+        
+        if (table != null) {
+            // Supprimer toutes les pages de donnees de la relation
+            List<PageId> dataPages = table.getDataPages();
+            for (PageId pageId : dataPages) {
+                diskManager.DeallocPage(pageId);
+            }
+            
+            // Supprimer la header page
+            diskManager.DeallocPage(table.getHeaderPageId());
+            
+            // Retirer de la map
+            tables.remove(nomTable);
+        }
+    }
+    
+    /**
+     * Supprime toutes les tables de la base de donnees
+     */
+    public void RemoveAllTables() throws IOException {
+        // Creer une copie des noms pour eviter ConcurrentModificationException
+        List<String> tableNames = new ArrayList<>(tables.keySet());
+        
+        for (String name : tableNames) {
+            RemoveTable(name);
+        }
+    }
+    
+    /**
+     * Affiche le schema d'une table
+     * Format : NomTable (Col1:Type1,Col2:Type2,...)
+     * @param nomTable le nom de la table
+     */
+    public void DescribeTable(String nomTable) {
+        Relation table = tables.get(nomTable);
+        
+        if (table != null) {
+            System.out.println(formatTableSchema(table));
+        }
+    }
+    
+    /**
+     * Affiche les schemas de toutes les tables
+     */
+    public void DescribeAllTables() {
+        for (Relation table : tables.values()) {
+            System.out.println(formatTableSchema(table));
+        }
+    }
+    
+    /**
+     * Formate le schema d'une table selon le format demande
+     * Format : NomTable (Col1:Type1,Col2:Type2,...)
+     */
+    private String formatTableSchema(Relation table) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(table.getName()).append(" (");
+        
+        List<ColumnInfo> columns = table.getColumns();
+        for (int i = 0; i < columns.size(); i++) {
+            ColumnInfo col = columns.get(i);
+            sb.append(col.getName()).append(":").append(col.getType());
+            
+            if (i < columns.size() - 1) {
+                sb.append(",");
+            }
+        }
+        
+        sb.append(")");
+        return sb.toString();
+    }
+    
+    
+    
 }
