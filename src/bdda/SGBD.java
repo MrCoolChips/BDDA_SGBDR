@@ -33,5 +33,39 @@ public class SGBD {
         this.running = true;
     }
     
+    /**
+     * Boucle principale de traitement des commandes
+     */
+    public void Run() {
+        Scanner scanner = new Scanner(System.in);
+        
+        // Charger l'etat precedent si existant
+        try {
+            dbManager.LoadState();
+        } catch (IOException e) {
+            System.err.println("Erreur lors du chargement de l'etat : " + e.getMessage());
+        }
+        
+        // Boucle de commandes
+        while (running) {
+            // Lire la commande (pas de prompt comme demande)
+            String command = scanner.nextLine().trim();
+            
+            // Ignorer les lignes vides
+            if (command.isEmpty()) {
+                continue;
+            }
+            
+            // Traiter la commande
+            try {
+                processCommand(command);
+            } catch (Exception e) {
+                System.err.println("Erreur : " + e.getMessage());
+            }
+        }
+        
+        scanner.close();
+    }
+    
     
 }
