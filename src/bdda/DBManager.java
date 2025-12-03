@@ -151,5 +151,49 @@ public class DBManager {
     }
     
     
+    /**
+     * Sauvegarde l'etat de la base de donnees
+     * Format du fichier :
+     * - Nombre de tables (int)
+     * - Pour chaque table :
+     *   - Nom de la table (String)
+     *   - HeaderPageId.fileIdx (int)
+     *   - HeaderPageId.pageIdx (int)
+     *   - Nombre de colonnes (int)
+     *   - Pour chaque colonne :
+     *     - Nom de la colonne (String)
+     *     - Type de la colonne (String)
+     */
+    public void SaveState() throws IOException {
+        // Flush les buffers avant de sauvegarder
+        bufferManager.FlushBuffers();
+        
+        String savePath = config.getPath() + File.separator + SAVE_FILE;
+        
+        try (DataOutputStream dos = new DataOutputStream(new FileOutputStream(savePath))) {
+            // Nombre de tables
+            dos.writeInt(tables.size());
+            
+            // Pour chaque table
+            for (Relation table : tables.values()) {
+                // Nom de la table
+                dos.writeUTF(table.getName());
+                
+                // HeaderPageId
+                dos.writeInt(table.getHeaderPageId().getFileIdx());
+                dos.writeInt(table.getHeaderPageId().getPageIdx());
+                
+                // Colonnes
+                List<ColumnInfo> columns = table.getColumns();
+                dos.writeInt(columns.size());
+                
+                for (ColumnInfo col : columns) {
+                    dos.writeUTF(col.getName());
+                    dos.writeUTF(col.getType());
+                }
+            }
+        }
+    }
     
+   
 }
