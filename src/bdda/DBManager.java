@@ -32,6 +32,19 @@ public class DBManager {
         this.bufferManager = new BufferManager(config, diskManager);
         this.tables = new HashMap<>();
     }
+
+    /**
+     * Constructeur - utilise les instances fournies
+     * @param config configuration de la base de donnees
+     * @param diskManager instance de DiskManager
+     * @param bufferManager instance de BufferManager
+     */
+    public DBManager(DBConfig config, DiskManager diskManager, BufferManager bufferManager) {
+        this.config = config;
+        this.diskManager = diskManager;
+        this.bufferManager = bufferManager;
+        this.tables = new HashMap<>();
+    }
     
     /**
      * Retourne le DiskManager
