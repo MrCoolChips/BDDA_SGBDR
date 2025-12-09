@@ -46,4 +46,14 @@ public class SelectOperator implements IRecordIterator {
         return true;
     }
 
+    @Override
+    public void Close() {
+        childIterator.Close();
+    }
+    
+    @Override
+    public void Reset() throws IOException {
+        childIterator.Reset();
+    }
+
 }
