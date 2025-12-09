@@ -86,6 +86,21 @@ public class SGBD {
         else if (command.equals("DESCRIBE TABLES")) {
             ProcessDescribeTablesCommand(command);
         }
+        else if (command.startsWith("INSERT INTO ")) {
+            ProcessInsertCommand(command);
+        }
+        else if (command.startsWith("APPEND INTO ")) {
+            ProcessAppendCommand(command);
+        }
+        else if (command.startsWith("SELECT ")) {
+            ProcessSelectCommand(command);
+        }
+        else if (command.startsWith("DELETE ")) {
+            ProcessDeleteCommand(command);
+        }
+        else if (command.startsWith("UPDATE ")) {
+            ProcessUpdateCommand(command);
+        }
         else if (command.equals("EXIT")) {
             ProcessExitCommand(command);
         }
