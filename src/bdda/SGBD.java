@@ -673,6 +673,111 @@ public class SGBD {
     }
 
     /**
+     * Traite la commande UPDATE
+     * Format : UPDATE nomRelation alias SET alias.col1=val1,... [WHERE conditions]
+     */
+    private void ProcessUpdateCommand(String command) throws IOException {
+        // Enlever "UPDATE "
+        String rest = command.substring(7);
+        
+        // Trouver " SET "
+        int setPos = rest.indexOf(" SET ");
+        String beforeSet = rest.substring(0, setPos).trim();
+        String afterSet = rest.substring(setPos + 5).trim();
+        
+        // Parser : nomRelation alias
+        String[] beforeParts = beforeSet.split(" ");
+        String tableName = beforeParts[0];
+        String alias = beforeParts[1];
+        
+        // Recuperer la relation
+        Relation relation = dbManager.GetTable(tableName);
+        if (relation == null) {
+            System.out.println("Table inexistante : " + tableName);
+            return;
+        }
+        
+        // Trouver WHERE si present
+        String setPart = afterSet;
+        List<Condition> conditions = new ArrayList<>();
+        int wherePos = afterSet.indexOf(" WHERE ");
+        if (wherePos >= 0) {
+            setPart = afterSet.substring(0, wherePos).trim();
+            String wherePart = afterSet.substring(wherePos + 7).trim();
+            conditions = parseConditions(wherePart, alias, relation);
+        }
+        
+        // Parser les affectations (SET)
+        List<int[]> updates = new ArrayList<>(); // [colIdx]
+        List<Object> newValues = new ArrayList<>();
+        
+        String[] assignments = setPart.split(",");
+        for (String assign : assignments) {
+            String[] parts = assign.split("=");
+            String colPart = parts[0].trim();
+            String valPart = parts[1].trim();
+            
+            // Enlever l'alias
+            if (colPart.startsWith(alias + ".")) {
+                colPart = colPart.substring(alias.length() + 1);
+            }
+            
+            int colIdx = getColumnIndex(colPart, relation);
+            ColumnInfo col = relation.getColumn(colIdx);
+            Object value = parseConstantWithType(valPart, col);
+            
+            updates.add(new int[]{colIdx});
+            newValues.add(value);
+        }
+        
+        // Parcourir et modifier les records qui matchent
+        int updateCount = 0;
+        List<PageId> dataPages = relation.getDataPages();
+        int slotCount = relation.getSlotCount();
+        int bytemapOffset = 16 + (slotCount * relation.getRecordSize());
+        
+        for (PageId pageId : dataPages) {
+            byte[] buffer = bufferManager.GetPage(pageId);
+            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(buffer);
+            boolean pageModified = false;
+            
+            for (int slotIdx = 0; slotIdx < slotCount; slotIdx++) {
+                if (bb.get(bytemapOffset + slotIdx) == 1) {
+                    Record record = new Record();
+                    int slotOffset = 16 + (slotIdx * relation.getRecordSize());
+                    relation.readFromBuffer(record, bb, slotOffset);
+                    
+                    // Verifier les conditions
+                    boolean match = true;
+                    for (Condition cond : conditions) {
+                        if (!cond.evaluate(record, relation.getColumns())) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    
+                    if (match) {
+                        // Appliquer les modifications
+                        for (int i = 0; i < updates.size(); i++) {
+                            int colIdx = updates.get(i)[0];
+                            record.setValue(colIdx, newValues.get(i));
+                        }
+                        
+                        // Reecrire le record
+                        relation.writeRecordToBuffer(record, bb, slotOffset);
+                        pageModified = true;
+                        updateCount++;
+                    }
+                }
+            }
+            
+            bufferManager.FreePage(pageId, pageModified);
+        }
+        
+        System.out.println("Total updated records=" + updateCount);
+    }
+
+    /**
      * Point d'entree de l'application
      * @param args args[0] = chemin vers le fichier de configuration
      */
