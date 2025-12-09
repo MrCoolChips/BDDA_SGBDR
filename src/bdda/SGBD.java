@@ -360,7 +360,244 @@ public class SGBD {
             }
         }
     }
-    
+
+    /**
+     * Traite la commande SELECT
+     * Format : SELECT cols FROM nomRelation alias [WHERE conditions]
+     */
+    private void ProcessSelectCommand(String command) throws IOException {
+        // Enlever "SELECT "
+        String rest = command.substring(7);
+        
+        // Trouver " FROM "
+        int fromPos = rest.indexOf(" FROM ");
+        String selectPart = rest.substring(0, fromPos).trim();
+        String afterFrom = rest.substring(fromPos + 6).trim();
+        
+        // Parser FROM : nomRelation alias
+        String[] fromParts = afterFrom.split(" ");
+        String tableName = fromParts[0];
+        String alias = fromParts[1];
+        
+        // Recuperer la relation
+        Relation relation = dbManager.GetTable(tableName);
+        if (relation == null) {
+            System.out.println("Table inexistante : " + tableName);
+            return;
+        }
+
+        // Trouver WHERE si present
+        String wherePart = null;
+        int wherePos = afterFrom.indexOf(" WHERE ");
+        if (wherePos >= 0) {
+            wherePart = afterFrom.substring(wherePos + 7).trim();
+        }
+        
+        // Parser les colonnes a projeter
+        List<Integer> projectIndices = parseProjectColumns(selectPart, alias, relation);
+        
+        // Parser les conditions
+        List<Condition> conditions = new ArrayList<>();
+        if (wherePart != null) {
+            conditions = parseConditions(wherePart, alias, relation);
+        }
+        
+        // Creer la chaine d'iterateurs
+        IRecordIterator scanner = new RelationScanner(relation, bufferManager);
+        IRecordIterator selector = new SelectOperator(scanner, conditions, relation.getColumns());
+        IRecordIterator projector = new ProjectOperator(selector, projectIndices);
+        
+        // Afficher les resultats
+        RecordPrinter printer = new RecordPrinter(projector);
+        int count = printer.printAll();
+        
+        System.out.println("Total selected records=" + count);
+        
+        // Fermer les iterateurs
+        projector.Close();
+    }
+
+    /**
+     * Parse les colonnes a projeter
+     * @return liste des indices de colonnes, ou null pour SELECT *
+     */
+    private List<Integer> parseProjectColumns(String selectPart, String alias, Relation relation) {
+        if (selectPart.equals("*")) {
+            return null; // Toutes les colonnes
+        }
+        
+        List<Integer> indices = new ArrayList<>();
+        String[] cols = selectPart.split(",");
+        
+        for (String col : cols) {
+            col = col.trim();
+            // Enlever l'alias (alias.colonne -> colonne)
+            if (col.startsWith(alias + ".")) {
+                col = col.substring(alias.length() + 1);
+            }
+            
+            // Trouver l'indice de la colonne
+            int idx = getColumnIndex(col, relation);
+            if (idx >= 0) {
+                indices.add(idx);
+            }
+        }
+        
+        return indices;
+    }
+
+    /**
+     * Retourne l'indice d'une colonne par son nom
+     */
+    private int getColumnIndex(String colName, Relation relation) {
+        List<ColumnInfo> columns = relation.getColumns();
+        for (int i = 0; i < columns.size(); i++) {
+            if (columns.get(i).getName().equals(colName)) {
+                return i;
+            }
+        }
+        return -1;
+    }
+
+    /**
+     * Parse les conditions WHERE
+     */
+    private List<Condition> parseConditions(String wherePart, String alias, Relation relation) {
+        List<Condition> conditions = new ArrayList<>();
+        
+        // Separer par " AND "
+        String[] condStrs = wherePart.split(" AND ");
+        
+        for (String condStr : condStrs) {
+            condStr = condStr.trim();
+            Condition cond = parseCondition(condStr, alias, relation);
+            if (cond != null) {
+                conditions.add(cond);
+            }
+        }
+        
+        return conditions;
+    }
+
+    /**
+     * Parse une condition individuelle
+     * Format : Terme1 OP Terme2
+     */
+    private Condition parseCondition(String condStr, String alias, Relation relation) {
+        // Trouver l'operateur
+        String operator = null;
+        int opPos = -1;
+        
+        // Chercher les operateurs a 2 caracteres d'abord
+        String[] ops2 = {"<=", ">=", "<>"};
+        for (String op : ops2) {
+            int pos = condStr.indexOf(op);
+            if (pos > 0) {
+                operator = op;
+                opPos = pos;
+                break;
+            }
+        }
+        
+        // Sinon chercher les operateurs a 1 caractere
+        if (operator == null) {
+            String[] ops1 = {"=", "<", ">"};
+            for (String op : ops1) {
+                int pos = condStr.indexOf(op);
+                if (pos > 0) {
+                    operator = op;
+                    opPos = pos;
+                    break;
+                }
+            }
+        }
+        
+        if (operator == null) {
+            return null;
+        }
+        
+        String leftStr = condStr.substring(0, opPos).trim();
+        String rightStr = condStr.substring(opPos + operator.length()).trim();
+        
+        // Parser le terme gauche
+        int leftColIdx = -1;
+        Object leftConst = null;
+        if (leftStr.startsWith(alias + ".")) {
+            String colName = leftStr.substring(alias.length() + 1);
+            leftColIdx = getColumnIndex(colName, relation);
+        } else {
+            leftConst = parseConstant(leftStr, relation, leftColIdx, rightStr, alias);
+        }
+        
+        // Parser le terme droit
+        int rightColIdx = -1;
+        Object rightConst = null;
+        if (rightStr.startsWith(alias + ".")) {
+            String colName = rightStr.substring(alias.length() + 1);
+            rightColIdx = getColumnIndex(colName, relation);
+        } else {
+            // Determiner le type par la colonne de gauche si c'est une colonne
+            rightConst = parseConstantWithType(rightStr, leftColIdx >= 0 ? relation.getColumn(leftColIdx) : null);
+        }
+        
+        // Si gauche est une constante, determiner son type par la colonne de droite
+        if (leftColIdx < 0 && leftConst == null) {
+            leftConst = parseConstantWithType(leftStr, rightColIdx >= 0 ? relation.getColumn(rightColIdx) : null);
+        }
+        
+        return new Condition(leftColIdx, leftConst, operator, rightColIdx, rightConst);
+    }
+
+    /**
+     * Parse une constante (pour retrocompatibilite)
+     */
+    private Object parseConstant(String str, Relation relation, int otherColIdx, String otherStr, String alias) {
+        // Enlever les guillemets si present
+        if (str.startsWith("\"") && str.endsWith("\"")) {
+            return str.substring(1, str.length() - 1);
+        }
+        
+        // Essayer de parser comme nombre
+        try {
+            if (str.contains(".")) {
+                return Float.parseFloat(str);
+            }
+            return Integer.parseInt(str);
+        } catch (NumberFormatException e) {
+            return str;
+        }
+    }
+
+    /**
+     * Parse une constante en tenant compte du type de colonne
+     */
+    private Object parseConstantWithType(String str, ColumnInfo col) {
+        // Enlever les guillemets si present
+        if (str.startsWith("\"") && str.endsWith("\"")) {
+            return str.substring(1, str.length() - 1);
+        }
+        
+        if (col != null) {
+            if (col.isInt()) {
+                return Integer.parseInt(str);
+            } else if (col.isFloat()) {
+                return Float.parseFloat(str);
+            } else {
+                return str;
+            }
+        }
+        
+        // Essayer de deviner le type
+        try {
+            if (str.contains(".")) {
+                return Float.parseFloat(str);
+            }
+            return Integer.parseInt(str);
+        } catch (NumberFormatException e) {
+            return str;
+        }
+    }
+
     /**
      * Point d'entree de l'application
      * @param args args[0] = chemin vers le fichier de configuration
