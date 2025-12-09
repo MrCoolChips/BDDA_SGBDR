@@ -34,4 +34,16 @@ public class SelectOperator implements IRecordIterator {
         return null; // Plus de records qui satisfont les conditions
     }
 
+    /**
+     * Evalue toutes les conditions (AND)
+     */
+    private boolean evaluateAllConditions(Record record) {
+        for (Condition cond : conditions) {
+            if (!cond.evaluate(record, columns)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
 }
