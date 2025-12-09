@@ -34,5 +34,46 @@ public class RelationScanner implements IRecordIterator {
         this.currentPageId = null;
         this.currentBuffer = null;
     }
+
+    @Override
+    public Record GetNextRecord() throws IOException {
+        int slotCount = relation.getSlotCount();
+        int bytemapOffset = DATA_PAGE_HEADER_SIZE + (slotCount * relation.getRecordSize());
+        
+        while (currentPageIndex < dataPages.size()) {
+            // Charger la page si necessaire
+            if (currentPageId == null || !currentPageId.equals(dataPages.get(currentPageIndex))) {
+                // Liberer l'ancienne page
+                if (currentPageId != null) {
+                    bufferManager.FreePage(currentPageId, false);
+                }
+                
+                currentPageId = dataPages.get(currentPageIndex);
+                currentBuffer = bufferManager.GetPage(currentPageId);
+            }
+            
+            ByteBuffer bb = ByteBuffer.wrap(currentBuffer);
+            
+            // Chercher le prochain slot occupe
+            while (currentSlotIndex < slotCount) {
+                if (bb.get(bytemapOffset + currentSlotIndex) == 1) {
+                    // Slot occupe : lire le record
+                    Record record = new Record();
+                    int slotOffset = DATA_PAGE_HEADER_SIZE + (currentSlotIndex * relation.getRecordSize());
+                    relation.readFromBuffer(record, bb, slotOffset);
+                    
+                    currentSlotIndex++;
+                    return record;
+                }
+                currentSlotIndex++;
+            }
+            
+            // Page terminee, passer a la suivante
+            currentSlotIndex = 0;
+            currentPageIndex++;
+        }
+        
+        return null; // Plus de records
+    }
     
 }
