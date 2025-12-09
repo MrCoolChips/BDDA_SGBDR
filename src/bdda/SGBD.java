@@ -599,6 +599,80 @@ public class SGBD {
     }
 
     /**
+     * Traite la commande DELETE
+     * Format : DELETE nomRelation alias [WHERE conditions]
+     */
+    private void ProcessDeleteCommand(String command) throws IOException {
+        // Enlever "DELETE "
+        String rest = command.substring(7);
+        
+        // Parser : nomRelation alias [WHERE ...]
+        String[] parts = rest.split(" ");
+        String tableName = parts[0];
+        String alias = parts[1];
+        
+        // Recuperer la relation
+        Relation relation = dbManager.GetTable(tableName);
+        if (relation == null) {
+            System.out.println("Table inexistante : " + tableName);
+            return;
+        }
+        
+        // Trouver WHERE si present
+        List<Condition> conditions = new ArrayList<>();
+        int wherePos = rest.indexOf(" WHERE ");
+        if (wherePos >= 0) {
+            String wherePart = rest.substring(wherePos + 7).trim();
+            conditions = parseConditions(wherePart, alias, relation);
+        }
+        
+        // Parcourir et supprimer les records qui matchent
+        int deleteCount = 0;
+        List<RecordId> toDelete = new ArrayList<>();
+        
+        // D'abord, collecter les RecordIds a supprimer
+        List<PageId> dataPages = relation.getDataPages();
+        int slotCount = relation.getSlotCount();
+        int bytemapOffset = 16 + (slotCount * relation.getRecordSize());
+        
+        for (PageId pageId : dataPages) {
+            byte[] buffer = bufferManager.GetPage(pageId);
+            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(buffer);
+            
+            for (int slotIdx = 0; slotIdx < slotCount; slotIdx++) {
+                if (bb.get(bytemapOffset + slotIdx) == 1) {
+                    Record record = new Record();
+                    int slotOffset = 16 + (slotIdx * relation.getRecordSize());
+                    relation.readFromBuffer(record, bb, slotOffset);
+                    
+                    // Verifier les conditions
+                    boolean match = true;
+                    for (Condition cond : conditions) {
+                        if (!cond.evaluate(record, relation.getColumns())) {
+                            match = false;
+                            break;
+                        }
+                    }
+                    
+                    if (match) {
+                        toDelete.add(new RecordId(pageId, slotIdx));
+                    }
+                }
+            }
+            
+            bufferManager.FreePage(pageId, false);
+        }
+        
+        // Supprimer les records
+        for (RecordId rid : toDelete) {
+            relation.DeleteRecord(rid);
+            deleteCount++;
+        }
+        
+        System.out.println("Total deleted records=" + deleteCount);
+    }
+
+    /**
      * Point d'entree de l'application
      * @param args args[0] = chemin vers le fichier de configuration
      */
