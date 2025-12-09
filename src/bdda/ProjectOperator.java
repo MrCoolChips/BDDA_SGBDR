@@ -4,7 +4,6 @@ import java.io.IOException;
 import java.util.ArrayList;
 import java.util.List;
 
-<<<<<<< HEAD
 public class ProjectOperator implements IRecordIterator {
 
     private final IRecordIterator child;
@@ -56,24 +55,3 @@ public class ProjectOperator implements IRecordIterator {
     }
 }
 
-=======
-/**
- * Operateur de projection (selectionne certaines colonnes)
- */
-public class ProjectOperator implements IRecordIterator {
-    
-    private IRecordIterator childIterator;
-    private List<Integer> columnIndices; // Indices des colonnes a garder
-    
-    /**
-     * Constructeur
-     * @param childIterator iterateur fils
-     * @param columnIndices indices des colonnes a projeter (null = toutes)
-     */
-    public ProjectOperator(IRecordIterator childIterator, List<Integer> columnIndices) {
-        this.childIterator = childIterator;
-        this.columnIndices = columnIndices;
-    }
-
-}
->>>>>>> 6cad22716dfbdf8388ca1475f8b747b89ed3f909
