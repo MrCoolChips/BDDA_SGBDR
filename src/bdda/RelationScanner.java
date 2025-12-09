@@ -75,5 +75,14 @@ public class RelationScanner implements IRecordIterator {
         
         return null; // Plus de records
     }
+
+     @Override
+    public void Close() {
+        if (currentPageId != null) {
+            bufferManager.FreePage(currentPageId, false);
+            currentPageId = null;
+            currentBuffer = null;
+        }
+    }
     
 }
