@@ -84,5 +84,13 @@ public class RelationScanner implements IRecordIterator {
             currentBuffer = null;
         }
     }
+
+    @Override
+    public void Reset() throws IOException {
+        Close();
+        this.dataPages = relation.getDataPages();
+        this.currentPageIndex = 0;
+        this.currentSlotIndex = 0;
+    }
     
 }
