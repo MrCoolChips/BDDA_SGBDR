@@ -10,50 +10,60 @@ import bdda.storage.Record;
  * Operateur de projection (selectionne certaines colonnes)
  */
 public class ProjectOperator implements IRecordIterator {
-    
-    private IRecordIterator childIterator;
-    private List<Integer> columnIndices; // Indices des colonnes a garder
-    
+
+    private final IRecordIterator childIterator;
+    // null => pas de projection (renvoyer le record tel quel)
+    private final List<Integer> columnIndices;
+
     /**
-     * Constructeur
      * @param childIterator iterateur fils
-     * @param columnIndices indices des colonnes a projeter (null = toutes)
+     * @param columnIndices indices des colonnes a projeter
+     *                      (null = aucune projection, on garde tout)
      */
     public ProjectOperator(IRecordIterator childIterator, List<Integer> columnIndices) {
         this.childIterator = childIterator;
-        this.columnIndices = columnIndices;
+        this.columnIndices = (columnIndices != null) ? new ArrayList<>(columnIndices): null;
+    }
+
+    /**
+     * Constructeur pratique pour SELECT * :
+     * garde toutes les colonnes [0..columnCount-1].
+     */
+    public ProjectOperator(IRecordIterator childIterator, int columnCount) {
+        this.childIterator = childIterator;
+        this.columnIndices = new ArrayList<>();
+        for (int i = 0; i < columnCount; i++) {
+            this.columnIndices.add(i);
+        }
     }
 
     @Override
     public Record GetNextRecord() throws IOException {
-        Record record = childIterator.GetNextRecord();
-        
-        if (record == null) {
+        Record input = childIterator.GetNextRecord();
+        if (input == null) {
             return null;
         }
-        
-        // Si pas de projection specifique, retourner tout
+
+        // Pas de projection specifique -> on renvoie le record tel quel
         if (columnIndices == null) {
-            return record;
+            return input;
         }
-        
-        // Creer un nouveau record avec seulement les colonnes demandees
-        List<Object> projectedValues = new ArrayList<>();
-        for (int idx : columnIndices) {
-            projectedValues.add(record.getValue(idx));
+
+        // Construire un nouveau record avec les colonnes projetees
+        Record projected = new Record();
+        for (Integer idx : columnIndices) {
+            projected.addValue(input.getValue(idx));
         }
-        
-        return new Record(projectedValues);
+        return projected;
     }
-    
+
     @Override
     public void Close() {
         childIterator.Close();
     }
-    
+
     @Override
     public void Reset() throws IOException {
         childIterator.Reset();
     }
-
 }

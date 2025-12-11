@@ -30,9 +30,9 @@ public class RelationScanner implements IRecordIterator {
     // Constantes
     private static final int DATA_PAGE_HEADER_SIZE = 16;
     
-    public RelationScanner(Relation relation, BufferManager bufferManager) throws IOException {
+    public RelationScanner(Relation relation) throws IOException {
         this.relation = relation;
-        this.bufferManager = bufferManager;
+        this.bufferManager = relation.getBufferManager();
         this.dataPages = relation.getDataPages();
         this.currentPageIndex = 0;
         this.currentSlotIndex = 0;
@@ -78,6 +78,7 @@ public class RelationScanner implements IRecordIterator {
             currentPageIndex++;
         }
         
+        Close();
         return null; // Plus de records
     }
 
