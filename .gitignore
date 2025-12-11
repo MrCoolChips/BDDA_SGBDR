@@ -2,3 +2,8 @@
 bin/
 *.class
 *.csv
+.classpath
+.project
+.settings/
+target/
+out/
