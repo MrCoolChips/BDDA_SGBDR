@@ -427,14 +427,15 @@ public class SGBD {
         IRecordIterator selector = new SelectOperator(scanner, conditions, relation.getColumns());
         IRecordIterator projector = new ProjectOperator(selector, projectIndices);
         
-        // Afficher les resultats
-        RecordPrinter printer = new RecordPrinter(projector);
-        int count = printer.printAll();
-        
-        System.out.println("Total selected records=" + count);
-        
-        // Fermer les iterateurs
-        projector.Close();
+        try {
+            // Afficher les resultats
+            RecordPrinter printer = new RecordPrinter(projector);
+            int count = printer.printAll();
+            
+            System.out.println("Total selected records=" + count);
+        } finally {
+            projector.Close();
+        }
     }
 
     /**
@@ -657,30 +658,32 @@ public class SGBD {
         
         for (PageId pageId : dataPages) {
             byte[] buffer = bufferManager.GetPage(pageId);
-            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(buffer);
-            
-            for (int slotIdx = 0; slotIdx < slotCount; slotIdx++) {
-                if (bb.get(bytemapOffset + slotIdx) == 1) {
-                    Record record = new Record();
-                    int slotOffset = 16 + (slotIdx * relation.getRecordSize());
-                    relation.readFromBuffer(record, bb, slotOffset);
-                    
-                    // Verifier les conditions
-                    boolean match = true;
-                    for (Condition cond : conditions) {
-                        if (!cond.evaluate(record, relation.getColumns())) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    
-                    if (match) {
-                        toDelete.add(new RecordId(pageId, slotIdx));
-                    }
-                }
+            try {
+	            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(buffer);
+	            
+	            for (int slotIdx = 0; slotIdx < slotCount; slotIdx++) {
+	                if (bb.get(bytemapOffset + slotIdx) == 1) {
+	                    Record record = new Record();
+	                    int slotOffset = 16 + (slotIdx * relation.getRecordSize());
+	                    relation.readFromBuffer(record, bb, slotOffset);
+	                    
+	                    // Verifier les conditions
+	                    boolean match = true;
+	                    for (Condition cond : conditions) {
+	                        if (!cond.evaluate(record, relation.getColumns())) {
+	                            match = false;
+	                            break;
+	                        }
+	                    }
+	                    
+	                    if (match) {
+	                        toDelete.add(new RecordId(pageId, slotIdx));
+	                    }
+	                }
+	            }
+            } finally {
+                bufferManager.FreePage(pageId, false);
             }
-            
-            bufferManager.FreePage(pageId, false);
         }
         
         // Supprimer les records
@@ -758,40 +761,42 @@ public class SGBD {
         
         for (PageId pageId : dataPages) {
             byte[] buffer = bufferManager.GetPage(pageId);
-            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(buffer);
             boolean pageModified = false;
-            
-            for (int slotIdx = 0; slotIdx < slotCount; slotIdx++) {
-                if (bb.get(bytemapOffset + slotIdx) == 1) {
-                    Record record = new Record();
-                    int slotOffset = 16 + (slotIdx * relation.getRecordSize());
-                    relation.readFromBuffer(record, bb, slotOffset);
-                    
-                    // Verifier les conditions
-                    boolean match = true;
-                    for (Condition cond : conditions) {
-                        if (!cond.evaluate(record, relation.getColumns())) {
-                            match = false;
-                            break;
-                        }
-                    }
-                    
-                    if (match) {
-                        // Appliquer les modifications
-                        for (int i = 0; i < updates.size(); i++) {
-                            int colIdx = updates.get(i)[0];
-                            record.setValue(colIdx, newValues.get(i));
-                        }
-                        
-                        // Reecrire le record
-                        relation.writeRecordToBuffer(record, bb, slotOffset);
-                        pageModified = true;
-                        updateCount++;
-                    }
-                }
+            try {
+	            java.nio.ByteBuffer bb = java.nio.ByteBuffer.wrap(buffer);
+	            
+	            for (int slotIdx = 0; slotIdx < slotCount; slotIdx++) {
+	                if (bb.get(bytemapOffset + slotIdx) == 1) {
+	                    Record record = new Record();
+	                    int slotOffset = 16 + (slotIdx * relation.getRecordSize());
+	                    relation.readFromBuffer(record, bb, slotOffset);
+	                    
+	                    // Verifier les conditions
+	                    boolean match = true;
+	                    for (Condition cond : conditions) {
+	                        if (!cond.evaluate(record, relation.getColumns())) {
+	                            match = false;
+	                            break;
+	                        }
+	                    }
+	                    
+	                    if (match) {
+	                        // Appliquer les modifications
+	                        for (int i = 0; i < updates.size(); i++) {
+	                            int colIdx = updates.get(i)[0];
+	                            record.setValue(colIdx, newValues.get(i));
+	                        }
+	                        
+	                        // Reecrire le record
+	                        relation.writeRecordToBuffer(record, bb, slotOffset);
+	                        pageModified = true;
+	                        updateCount++;
+	                    }
+	                }
+	            }
+            } finally {
+	            bufferManager.FreePage(pageId, pageModified);
             }
-            
-            bufferManager.FreePage(pageId, pageModified);
         }
         
         System.out.println("Total updated records=" + updateCount);
