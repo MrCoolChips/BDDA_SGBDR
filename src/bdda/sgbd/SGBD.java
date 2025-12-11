@@ -423,7 +423,7 @@ public class SGBD {
         }
         
         // Creer la chaine d'iterateurs
-        IRecordIterator scanner = new RelationScanner(relation, bufferManager);
+        IRecordIterator scanner = new RelationScanner(relation);
         IRecordIterator selector = new SelectOperator(scanner, conditions, relation.getColumns());
         IRecordIterator projector = new ProjectOperator(selector, projectIndices);
         

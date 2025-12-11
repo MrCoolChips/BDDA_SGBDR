@@ -68,6 +68,10 @@ public class Relation {
         return name;
     }
     
+    public BufferManager getBufferManager() {
+    	return bufferManager;
+    }
+    
     public List<ColumnInfo> getColumns() {
         return columns;
     }
