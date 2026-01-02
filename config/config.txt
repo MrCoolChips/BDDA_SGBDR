@@ -8,4 +8,4 @@ dbpath = 'BinData/'
 pagesize = 64
 dm_maxfilecount = 20
 bm_policy = 'LRU'
-bm_buffercount = 1
+bm_buffercount = 8

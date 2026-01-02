@@ -133,25 +133,29 @@ public class BufferManager {
 
 
     public void FlushBuffers() throws IOException {
-        
-        for (Frame frame : frames) {
-            if (frame.pageId != null && frame.dirty) {
-                diskManager.WritePage(frame.pageId, frame.buffer);
+        try {
+            for (Frame frame : frames) {
+                if (frame.pageId != null && frame.dirty) {
+                    diskManager.WritePage(frame.pageId, frame.buffer);
+                }
             }
-        }
-        
-        for (Frame frame : frames) {
-            frame.pageId = null;
-            frame.dirty = false;
-            frame.pinCount = 0;
-            frame.lastAccess = System.currentTimeMillis();
+        } finally {
+            // Réinitialisation des frames et nettoyage de la table des pages
+            // Ce bloc est exécuté même si une IOException survient lors de l'écriture
+            for (Frame frame : frames) {
+                frame.pageId = null;
+                frame.dirty = false;
+                frame.pinCount = 0;
+                frame.lastAccess = System.currentTimeMillis();
+                
+                // Réinitialisation du contenu du buffer
+                for (int i = 0; i < frame.buffer.length; i++) {
+                    frame.buffer[i] = 0;
+                }
+            }
             
-            for (int i = 0; i < frame.buffer.length; i++) {
-                frame.buffer[i] = 0;
-            }
+            pageTable.clear();
         }
-        
-        pageTable.clear();
     }
 
 
