@@ -273,7 +273,7 @@ public class SGBD {
     /**
      * Parse les valeurs d'un INSERT ou CSV
      */
-    private List<Object> parseValues(String valuesStr, List<ColumnInfo> columns) {
+    public static List<Object> parseValues(String valuesStr, List<ColumnInfo> columns) {
         List<Object> values = new ArrayList<>();
         List<String> tokens = splitValues(valuesStr);
         
@@ -291,7 +291,7 @@ public class SGBD {
     /**
      * Split les valeurs en tenant compte des guillemets
      */
-    private List<String> splitValues(String valuesStr) {
+    private static List<String> splitValues(String valuesStr) {
         List<String> tokens = new ArrayList<>();
         StringBuilder current = new StringBuilder();
         boolean inQuotes = false;
@@ -320,7 +320,7 @@ public class SGBD {
     /**
      * Parse une valeur selon son type
      */
-    private Object parseValue(String token, ColumnInfo col) {
+    private static Object parseValue(String token, ColumnInfo col) {
         token = token.trim();
         
         // Enlever les guillemets si present

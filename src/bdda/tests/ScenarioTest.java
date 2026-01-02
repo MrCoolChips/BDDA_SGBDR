@@ -23,6 +23,10 @@ import bdda.storage.Relation;
 import bdda.storage.Record;
 import bdda.storage.RecordId;
 
+// SGBD sınıfındaki statik metotları kullanmak için gerekli referans
+// (Eğer SGBD sınıfı bdda.sgbd paketindeyse import gerekebilir veya tam yol yazılır)
+import bdda.sgbd.SGBD; 
+
 public class ScenarioTest {
 
     public static void main(String[] args) {
@@ -191,29 +195,50 @@ public class ScenarioTest {
 
             // 9. APPEND INTO S ALLRECORDS(S.csv)
             System.out.println("\n[9] APPEND INTO S ALLRECORDS(S.csv)");
-            System.out.println("Lecture du CSV et insertion...");
+            System.out.println("Traitement de la commande d'insertion de masse...");
+
+            // Simulation de la commande reçue par le SGBD
+            String command = "APPEND INTO S ALLRECORDS (S.csv)";
             
-            int appendCount = 0;
-            try (BufferedReader br = new BufferedReader(new FileReader(csvFile))) {
-                String line;
-                while ((line = br.readLine()) != null) {
-                    if (line.trim().isEmpty()) continue;
-                    
-                    String[] parts = line.split(",");
-                    if (parts.length == 5) {
-                        Record r = new Record();
-                        r.addValue(Integer.parseInt(parts[0].trim()));
-                        r.addValue(Float.parseFloat(parts[1].trim()));
-                        r.addValue(Integer.parseInt(parts[2].trim()));
-                        r.addValue(Integer.parseInt(parts[3].trim()));
-                        r.addValue(Integer.parseInt(parts[4].trim()));
-                        
-                        sRel.InsertRecord(r);
-                        appendCount++;
+            // Extraction des paramètres de la commande
+            String rest = command.substring(12);
+            int allrecordsPos = rest.indexOf(" ALLRECORDS ");
+            String tableName = rest.substring(0, allrecordsPos).trim();
+            
+            // Extraction du nom de fichier
+            String filePart = rest.substring(allrecordsPos + 12).trim();
+            String fileName = filePart.substring(1, filePart.length() - 1);
+            
+            // Récupération de la relation
+            Relation relation = dbm.GetTable(tableName);
+            
+            if (relation == null) {
+                System.out.println("Erreur : Table inexistante (" + tableName + ")");
+            } else {
+                File fileToRead = new File(fileName);
+                if (!fileToRead.exists()) {
+                    System.out.println("Erreur : Fichier introuvable (" + fileName + ")");
+                } else {
+                    int appendCount = 0;
+                    try (BufferedReader reader = new BufferedReader(new FileReader(fileToRead))) {
+                        String line;
+                        while ((line = reader.readLine()) != null) {
+                            if (line.trim().isEmpty()) {
+                                continue;
+                            }
+                            
+                            // Utilisation directe de la méthode statique SGBD.parseValues
+                            // pour parser la ligne CSV et convertir les types
+                            List<Object> values = SGBD.parseValues(line, relation.getColumns());
+                            
+                            Record record = new Record(values);
+                            relation.InsertRecord(record);
+                            appendCount++;
+                        }
                     }
+                    System.out.println("-> " + appendCount + " tuples insérés depuis " + fileName + ".");
                 }
             }
-            System.out.println("-> " + appendCount + " tuples insérés depuis S.csv.");
 
             // 10. SELECT * FROM S s WHERE s.C3=12
             System.out.println("\n[10] SELECT * FROM S s WHERE s.C3=12");
@@ -236,9 +261,10 @@ public class ScenarioTest {
 
             // FIN
             dbm.Finish();
-         // Suppression du CSV de test
+            // Suppression du CSV de test
             if (csvFile.exists()) {
                 if (csvFile.delete()) {
+                    // Supprimé avec succès
                 } else {
                     System.out.println("Impossible de supprimer S.csv.");
                 }
