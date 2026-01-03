@@ -5,7 +5,7 @@
 dbpath = 'BinData/'
 
 # Autres configurations
-pagesize = 64
-dm_maxfilecount = 20
+pagesize = 4096
+dm_maxfilecount = 100
 bm_policy = 'LRU'
-bm_buffercount = 8
+bm_buffercount = 1024

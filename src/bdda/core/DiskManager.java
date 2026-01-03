@@ -20,8 +20,8 @@ public class DiskManager {
      * Taille de la bitmap en bytes au début de chaque fichier Data.bin
      * Permet de tracker jusqu'à 512 pages par fichier (64 bytes * 8 bits)
      */
-    private static final int BITMAP_SIZE_BYTES = 64;
-    private static final int MAX_PAGES_PER_FILE = BITMAP_SIZE_BYTES * 8; // = 512 pages
+    private static final int BITMAP_SIZE_BYTES = 8192;
+    private static final int MAX_PAGES_PER_FILE = BITMAP_SIZE_BYTES * 8;
 
     /**
      * Constructeur du DiskManager.
