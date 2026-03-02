@@ -43,39 +43,31 @@ A script is provided at the root of the repository:
 ```bat
 run.bat
 ```
-It compiles the project and starts the main class bdda.sgbd.SGBD using config/config.txt.
+It compiles the source code and then launches the interactive DBMS console by running the `bdda.sgbd.SGBD` entry point with the configuration file `config/config.txt`.
 
-Supported Commands (overview)
+---
 
-The command parser includes (at least):
+## Supported Commands (Overview)
 
-CREATE TABLE ...
+The CLI accepts a set of SQL-like commands, including:
 
-DROP TABLE ... / DROP TABLES
+- `CREATE TABLE ...`
+- `DROP TABLE ...` / `DROP TABLES`
+- `DESCRIBE TABLE ...` / `DESCRIBE TABLES`
+- `INSERT INTO ...`
+- `APPEND INTO ...`
+- `SELECT ...`
+- `DELETE ...`
+- `UPDATE ...`
+- `EXIT`
 
-DESCRIBE TABLE ... / DESCRIBE TABLES
+### Example Session (Indicative)
 
-INSERT INTO ...
-
-APPEND INTO ...
-
-SELECT ...
-
-DELETE ...
-
-UPDATE ...
-
-EXIT
-
-Example (indicative)
+```sql
 CREATE TABLE R (X:INT, C3:FLOAT, BLA:CHAR(10))
 DESCRIBE TABLES
 INSERT INTO R VALUES (1, 3.14, "hello")
 SELECT * FROM R
 EXIT
-
-Exact syntax depends on the parser implementation in src/bdda/sgbd/SGBD.java.
-
-.gitignore
-
-Build artifacts and generated files are ignored (e.g. bin/, *.class, etc.).
+```
+Note: The exact grammar and supported variants depend on the command parser implemented in src/bdda/sgbd/SGBD.java
